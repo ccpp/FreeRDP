@@ -387,6 +387,7 @@ rdpSettings* freerdp_settings_new(DWORD flags)
 		settings->MultifragMaxRequestSize = 0xFFFF;
 
 		settings->GatewayUseSameCredentials = FALSE;
+		settings->GatewayBypassLocal = TRUE;
 
 		settings->FastPathInput = TRUE;
 		settings->FastPathOutput = TRUE;
@@ -657,6 +658,7 @@ rdpSettings* freerdp_settings_clone(rdpSettings* settings)
 		_settings->PlayRemoteFx = settings->PlayRemoteFx; /* 1857 */
 		_settings->GatewayUseSameCredentials = settings->GatewayUseSameCredentials; /* 1991 */
 		_settings->GatewayEnabled = settings->GatewayEnabled; /* 1992 */
+		_settings->GatewayBypassLocal = settings->GatewayBypassLocal; /* 1993 */
 #ifdef WITH_HTTP_PROXY
 		_settings->HTTPProxyEnabled = settings->HTTPProxyEnabled; /* 1995 */
 #endif

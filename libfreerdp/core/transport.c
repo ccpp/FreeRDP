@@ -71,25 +71,8 @@ void transport_attach(rdpTransport* transport, int sockfd)
 	transport->TcpOut = transport->TcpIn;
 }
 
-BOOL transport_disconnect(rdpTransport* transport)
+void transport_stop(rdpTransport* transport)
 {
-	BOOL status = TRUE;
-
-	if (!transport)
-		return FALSE;
-
-	if (transport->layer == TRANSPORT_LAYER_TLS)
-		status &= tls_disconnect(transport->TlsIn);
-
-	if ((transport->layer == TRANSPORT_LAYER_TSG) || (transport->layer == TRANSPORT_LAYER_TSG_TLS))
-	{
-		status &= tsg_disconnect(transport->tsg);
-	}
-	else
-	{
-		status &= tcp_disconnect(transport->TcpIn);
-	}
-
 	if (transport->async)
 	{
 		if (transport->stopEvent)
@@ -103,6 +86,28 @@ BOOL transport_disconnect(rdpTransport* transport)
 			transport->thread = NULL;
 			transport->stopEvent = NULL;
 		}
+	}
+}
+
+BOOL transport_disconnect(rdpTransport* transport)
+{
+	BOOL status = TRUE;
+
+	if (!transport)
+		return FALSE;
+
+	transport_stop(transport);
+
+	if (transport->layer == TRANSPORT_LAYER_TLS)
+		status &= tls_disconnect(transport->TlsIn);
+
+	if ((transport->layer == TRANSPORT_LAYER_TSG) || (transport->layer == TRANSPORT_LAYER_TSG_TLS))
+	{
+		status &= tsg_disconnect(transport->tsg);
+	}
+	else
+	{
+		status &= tcp_disconnect(transport->TcpIn);
 	}
 
 	return status;
@@ -219,6 +224,13 @@ BIO_METHOD* BIO_s_tsg(void)
 
 BOOL transport_connect_tls(rdpTransport* transport)
 {
+	int tls_status;
+	freerdp* instance;
+	rdpContext* context;
+
+	instance = (freerdp*) transport->settings->instance;
+	context = instance->context;
+
 	if (transport->layer == TRANSPORT_LAYER_TSG)
 	{
 		transport->TsgTls = tls_new(transport->settings);
@@ -234,10 +246,23 @@ BOOL transport_connect_tls(rdpTransport* transport)
 		if (transport->TsgTls->port == 0)
 			transport->TsgTls->port = 3389;
 
-		if (!tls_connect(transport->TsgTls))
+		tls_status = tls_connect(transport->TsgTls);
+
+		if (tls_status < 1)
 		{
-			if (!connectErrorCode)
-				connectErrorCode = TLSCONNECTERROR;
+			if (tls_status < 0)
+			{
+				if (!connectErrorCode)
+					connectErrorCode = TLSCONNECTERROR;
+
+				if (!freerdp_get_last_error(context))
+					freerdp_set_last_error(context, FREERDP_ERROR_TLS_CONNECT_FAILED);
+			}
+			else
+			{
+				if (!freerdp_get_last_error(context))
+					freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
+			}
 
 			tls_free(transport->TsgTls);
 			transport->TsgTls = NULL;
@@ -263,10 +288,23 @@ BOOL transport_connect_tls(rdpTransport* transport)
 	if (transport->TlsIn->port == 0)
 		transport->TlsIn->port = 3389;
 
-	if (!tls_connect(transport->TlsIn))
+	tls_status = tls_connect(transport->TlsIn);
+
+	if (tls_status < 1)
 	{
-		if (!connectErrorCode)
-			connectErrorCode = TLSCONNECTERROR;
+		if (tls_status < 0)
+		{
+			if (!connectErrorCode)
+				connectErrorCode = TLSCONNECTERROR;
+
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_TLS_CONNECT_FAILED);
+		}
+		else
+		{
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
+		}
 
 		tls_free(transport->TlsIn);
 
@@ -300,6 +338,7 @@ BOOL transport_connect_nla(rdpTransport* transport)
 	if (!transport->credssp)
 	{
 		transport->credssp = credssp_new(instance, transport, settings);
+		transport_set_nla_mode(transport, TRUE);
 
 		if (settings->AuthenticationServiceClass)
 		{
@@ -313,14 +352,22 @@ BOOL transport_connect_nla(rdpTransport* transport)
 		if (!connectErrorCode)
 			connectErrorCode = AUTHENTICATIONERROR;
 
+		if (!freerdp_get_last_error(instance->context))
+		{
+			freerdp_set_last_error(instance->context, FREERDP_ERROR_AUTHENTICATION_FAILED);
+		}
+
 		fprintf(stderr, "Authentication failure, check credentials.\n"
 			"If credentials are valid, the NTLMSSP implementation may be to blame.\n");
 
+		transport_set_nla_mode(transport, FALSE);
 		credssp_free(transport->credssp);
 		transport->credssp = NULL;
+
 		return FALSE;
 	}
 
+	transport_set_nla_mode(transport, FALSE);
 	credssp_free(transport->credssp);
 	transport->credssp = NULL;
 
@@ -453,7 +500,15 @@ BOOL transport_http_proxy_connect(rdpTransport* transport, const char* hostname,
 
 BOOL transport_tsg_connect(rdpTransport* transport, const char* hostname, UINT16 port)
 {
-	rdpTsg* tsg = tsg_new(transport);
+	rdpTsg* tsg;
+	int tls_status;
+	freerdp* instance;
+	rdpContext* context;
+
+	instance = (freerdp*) transport->settings->instance;
+	context = instance->context;
+
+	tsg = tsg_new(transport);
 
 	tsg->transport = transport;
 	transport->tsg = tsg;
@@ -479,11 +534,41 @@ BOOL transport_tsg_connect(rdpTransport* transport, const char* hostname, UINT16
 	if (transport->TlsOut->port == 0)
 		transport->TlsOut->port = 443;
 
-	if (!tls_connect(transport->TlsIn))
-		return FALSE;
+	tls_status = tls_connect(transport->TlsIn);
 
-	if (!tls_connect(transport->TlsOut))
+	if (tls_status < 1)
+	{
+		if (tls_status < 0)
+		{
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_TLS_CONNECT_FAILED);
+		}
+		else
+		{
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
+		}
+
 		return FALSE;
+	}
+
+	tls_status = tls_connect(transport->TlsOut);
+
+	if (tls_status < 1)
+	{
+		if (tls_status < 0)
+		{
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_TLS_CONNECT_FAILED);
+		}
+		else
+		{
+			if (!freerdp_get_last_error(context))
+				freerdp_set_last_error(context, FREERDP_ERROR_CONNECT_CANCELLED);
+		}
+
+		return FALSE;
+	}
 
 	if (!tsg_connect(tsg, hostname, port))
 		return FALSE;
@@ -500,7 +585,7 @@ BOOL transport_connect(rdpTransport* transport, const char* hostname, UINT16 por
 
 #ifdef WITH_HTTP_PROXY
 	/* For TSGateway, find the system HTTPS proxy automatically */
-	if (settings->GatewayEnabled) {
+	if (transport->GatewayEnabled) {
 		if (!transport->settings->HTTPProxyEnabled)
 			transport_http_proxy_read_environment(settings, "https_proxy");
 
@@ -509,7 +594,7 @@ BOOL transport_connect(rdpTransport* transport, const char* hostname, UINT16 por
 	}
 #endif
 
-	if (transport->settings->GatewayEnabled)
+	if (transport->GatewayEnabled)
 	{
 		transport->TcpOut = tcp_new(settings);
 
@@ -632,11 +717,16 @@ BOOL transport_accept_nla(rdpTransport* transport)
 		return TRUE;
 
 	if (!transport->credssp)
+	{
 		transport->credssp = credssp_new(instance, transport, settings);
+		transport_set_nla_mode(transport, TRUE);
+	}
 
 	if (credssp_authenticate(transport->credssp) < 0)
 	{
 		fprintf(stderr, "client authentication failure\n");
+
+		transport_set_nla_mode(transport, FALSE);
 		credssp_free(transport->credssp);
 		transport->credssp = NULL;
 
@@ -646,6 +736,7 @@ BOOL transport_accept_nla(rdpTransport* transport)
 	}
 
 	/* don't free credssp module yet, we need to copy the credentials from it first */
+	transport_set_nla_mode(transport, FALSE);
 
 	return TRUE;
 }
@@ -800,49 +891,56 @@ int transport_read(rdpTransport* transport, wStream* s)
 
 	CopyMemory(header, Stream_Buffer(s), 4); /* peek at first 4 bytes */
 
-	/* if header is present, read in exactly one PDU */
-	if (header[0] == 0x03)
-	{
-		/* TPKT header */
+	/* if header is present, read exactly one PDU */
 
-		pduLength = (header[2] << 8) | header[3];
-	}
-	else if (header[0] == 0x30)
+	if (transport->NlaMode)
 	{
-		/* TSRequest (NLA) */
-
-		if (header[1] & 0x80)
+		if (header[0] == 0x30)
 		{
-			if ((header[1] & ~(0x80)) == 1)
+			/* TSRequest (NLA) */
+
+			if (header[1] & 0x80)
 			{
-				pduLength = header[2];
-				pduLength += 3;
-			}
-			else if ((header[1] & ~(0x80)) == 2)
-			{
-				pduLength = (header[2] << 8) | header[3];
-				pduLength += 4;
+				if ((header[1] & ~(0x80)) == 1)
+				{
+					pduLength = header[2];
+					pduLength += 3;
+				}
+				else if ((header[1] & ~(0x80)) == 2)
+				{
+					pduLength = (header[2] << 8) | header[3];
+					pduLength += 4;
+				}
+				else
+				{
+					fprintf(stderr, "Error reading TSRequest!\n");
+					return -1;
+				}
 			}
 			else
 			{
-				fprintf(stderr, "Error reading TSRequest!\n");
-				return -1;
+				pduLength = header[1];
+				pduLength += 2;
 			}
-		}
-		else
-		{
-			pduLength = header[1];
-			pduLength += 2;
 		}
 	}
 	else
 	{
-		/* Fast-Path Header */
+		if (header[0] == 0x03)
+		{
+			/* TPKT header */
 
-		if (header[1] & 0x80)
-			pduLength = ((header[1] & 0x7F) << 8) | header[2];
+			pduLength = (header[2] << 8) | header[3];
+		}
 		else
-			pduLength = header[1];
+		{
+			/* Fast-Path Header */
+
+			if (header[1] & 0x80)
+				pduLength = ((header[1] & 0x7F) << 8) | header[2];
+			else
+				pduLength = header[1];
+		}
 	}
 
 	status = transport_read_layer(transport, Stream_Buffer(s) + position, pduLength - position);
@@ -1058,32 +1156,34 @@ int transport_check_fds(rdpTransport* transport)
 	 * Loop through and read all available PDUs.  Since multiple
 	 * PDUs can exist, it's important to deliver them all before
 	 * returning.  Otherwise we run the risk of having a thread
-	 * wait for a socket to get signalled that data is available
+	 * wait for a socket to get signaled that data is available
 	 * (which may never happen).
 	 */
 	for (;;)
 	{
-		status = transport_read_nonblocking(transport);
+		/**
+		 * Note: transport_read_nonblocking() reads max 1 additional PDU from
+		 * the layer. Also note that transport_read_nonblocking() is also called
+		 * outside of this function in transport_write()! This means that when
+		 * entering transport_check_fds it is possible that the stream position
+		 * of transport->ReceiveBuffer position is > 0. We must process this data
+		 * even if transport_read_nonblocking() returns 0.
+		 * Note that transport->ReceiveBuffer is replaced after each iteration
+		 * of this loop with a fresh stream instance from a pool.
+		 */
 
-		if (status < 0 || Stream_GetPosition(transport->ReceiveBuffer) == 0)
+		if ((status = transport_read_nonblocking(transport)) < 0)
 			return status;
 
-		while ((pos = Stream_GetPosition(transport->ReceiveBuffer)) > 0)
+		if ((pos = Stream_GetPosition(transport->ReceiveBuffer)) < 2)
+			return status;
+
+		Stream_SetPosition(transport->ReceiveBuffer, 0);
+		length = 0;
+
+		if (transport->NlaMode)
 		{
-			Stream_SetPosition(transport->ReceiveBuffer, 0);
-
-			if (tpkt_verify_header(transport->ReceiveBuffer)) /* TPKT */
-			{
-				/* Ensure the TPKT header is available. */
-				if (pos <= 4)
-				{
-					Stream_SetPosition(transport->ReceiveBuffer, pos);
-					return 0;
-				}
-
-				length = tpkt_read_header(transport->ReceiveBuffer);
-			}
-			else if (nla_verify_header(transport->ReceiveBuffer))
+			if (nla_verify_header(transport->ReceiveBuffer))
 			{
 				/* TSRequest */
 
@@ -1105,6 +1205,20 @@ int transport_check_fds(rdpTransport* transport)
 
 				length = nla_read_header(transport->ReceiveBuffer);
 			}
+		}
+		else
+		{
+			if (tpkt_verify_header(transport->ReceiveBuffer)) /* TPKT */
+			{
+				/* Ensure the TPKT header is available. */
+				if (pos <= 4)
+				{
+					Stream_SetPosition(transport->ReceiveBuffer, pos);
+					return 0;
+				}
+
+				length = tpkt_read_header(transport->ReceiveBuffer);
+			}
 			else /* Fast Path */
 			{
 				/* Ensure the Fast Path header is available. */
@@ -1125,53 +1239,45 @@ int transport_check_fds(rdpTransport* transport)
 
 				length = fastpath_read_header(NULL, transport->ReceiveBuffer);
 			}
+		}
 
-			if (length == 0)
-			{
-				fprintf(stderr, "transport_check_fds: protocol error, not a TPKT or Fast Path header.\n");
-				winpr_HexDump(Stream_Buffer(transport->ReceiveBuffer), pos);
-				return -1;
-			}
+		if (length == 0)
+		{
+			fprintf(stderr, "transport_check_fds: protocol error, not a TPKT or Fast Path header.\n");
+			winpr_HexDump(Stream_Buffer(transport->ReceiveBuffer), pos);
+			return -1;
+		}
 
-			if (pos < length)
-			{
-				Stream_SetPosition(transport->ReceiveBuffer, pos);
-				return 0; /* Packet is not yet completely received. */
-			}
+		if (pos < length)
+		{
+			Stream_SetPosition(transport->ReceiveBuffer, pos);
+			return 0; /* Packet is not yet completely received. */
+		}
 
-			received = transport->ReceiveBuffer;
-			transport->ReceiveBuffer = StreamPool_Take(transport->ReceivePool, 0);
+		received = transport->ReceiveBuffer;
+		transport->ReceiveBuffer = StreamPool_Take(transport->ReceivePool, 0);
 
-			Stream_SetPosition(received, length);
-			Stream_SealLength(received);
-			Stream_SetPosition(received, 0);
+		Stream_SetPosition(received, length);
+		Stream_SealLength(received);
+		Stream_SetPosition(received, 0);
 
-			/**
-			 * status:
-			 * 	-1: error
-			 * 	 0: success
-			 * 	 1: redirection
-			 */
+		/**
+		 * status:
+		 * 	-1: error
+		 * 	 0: success
+		 * 	 1: redirection
+		 */
 
-			recv_status = transport->ReceiveCallback(transport, received, transport->ReceiveExtra);
+		recv_status = transport->ReceiveCallback(transport, received, transport->ReceiveExtra);
 
-			if (recv_status == 1)
-			{
-				/**
-				 * Last call to ReceiveCallback resulted in a session redirection,
-				 * which means the current rdpTransport* transport pointer has been freed.
-				 * Return 0 for success, the rest of this function is meant for non-redirected cases.
-				 */
-				return 0;
-			}
+		Stream_Release(received);
 
-			Stream_Release(received);
+		if (recv_status < 0)
+			return -1;
 
-			if (recv_status < 0)
-				status = -1;
-
-			if (status < 0)
-				return status;
+		if (recv_status == 1)
+		{
+			return 1; /* session redirection */
 		}
 	}
 
@@ -1201,6 +1307,16 @@ BOOL transport_set_blocking_mode(rdpTransport* transport, BOOL blocking)
 	}
 
 	return status;
+}
+
+void transport_set_gateway_enabled(rdpTransport* transport, BOOL GatewayEnabled)
+{
+	transport->GatewayEnabled = GatewayEnabled;
+}
+
+void transport_set_nla_mode(rdpTransport* transport, BOOL NlaMode)
+{
+	transport->NlaMode = NlaMode;
 }
 
 static void* transport_client_thread(void* arg)
@@ -1246,7 +1362,7 @@ static void* transport_client_thread(void* arg)
 
 		transport_get_read_handles(transport, (HANDLE*) &handles, &nCount);
 
-		status = WaitForMultipleObjects(nCount, handles, FALSE, 100);
+		status = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
 		if (transport->layer == TRANSPORT_LAYER_CLOSED)
 		{
 			rdpRdp* rdp = (rdpRdp*) transport->rdp;
@@ -1298,6 +1414,7 @@ rdpTransport* transport_new(rdpSettings* settings)
 		transport->connectedEvent = CreateEvent(NULL, TRUE, FALSE, NULL);
 
 		transport->blocking = TRUE;
+		transport->GatewayEnabled = FALSE;
 
 		InitializeCriticalSectionAndSpinCount(&(transport->ReadLock), 4000);
 		InitializeCriticalSectionAndSpinCount(&(transport->WriteLock), 4000);
@@ -1312,20 +1429,7 @@ void transport_free(rdpTransport* transport)
 {
 	if (transport)
 	{
-		if (transport->async)
-		{
-			if (transport->stopEvent)
-			{
-				SetEvent(transport->stopEvent);
-				WaitForSingleObject(transport->thread, INFINITE);
-
-				CloseHandle(transport->thread);
-				CloseHandle(transport->stopEvent);
-
-				transport->thread = NULL;
-				transport->stopEvent = NULL;
-			}
-		}
+		transport_stop(transport);
 
 		if (transport->ReceiveBuffer)
 			Stream_Release(transport->ReceiveBuffer);

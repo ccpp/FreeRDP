@@ -27,7 +27,6 @@
 #include "surface.h"
 #include "transport.h"
 #include "connection.h"
-#include "extension.h"
 #include "message.h"
 
 #include <assert.h>
@@ -65,6 +64,7 @@ BOOL freerdp_connect(freerdp* instance)
 
 	/* We always set the return code to 0 before we start the connect sequence*/
 	connectErrorCode = 0;
+	freerdp_set_last_error(instance->context, FREERDP_ERROR_SUCCESS);
 
 	rdp = instance->context->rdp;
 	settings = instance->settings;
@@ -78,16 +78,19 @@ BOOL freerdp_connect(freerdp* instance)
 		settings->KeyboardFunctionKey = 12;
 	}
 
-	extension_load_and_init_plugins(rdp->extension);
-	extension_pre_connect(rdp->extension);
-
 	if (!status)
 	{
 		if (!connectErrorCode)
 		{
 			connectErrorCode = PREECONNECTERROR;
 		}
-		fprintf(stderr, "%s:%d: freerdp_pre_connect failed\n", __FILE__, __LINE__);
+
+		if (!freerdp_get_last_error(rdp->context))
+		{
+			freerdp_set_last_error(instance->context, FREERDP_ERROR_PRE_CONNECT_FAILED);
+		}
+
+		fprintf(stderr, "freerdp_pre_connect failed\n");
 
 		goto freerdp_connect_finally;
 	}
@@ -97,7 +100,7 @@ BOOL freerdp_connect(freerdp* instance)
 	/* --authonly tests the connection without a UI */
 	if (instance->settings->AuthenticationOnly)
 	{
-		fprintf(stderr, "%s:%d: Authentication only, exit status %d\n", __FILE__, __LINE__, !status);
+		fprintf(stderr, "Authentication only, exit status %d\n", !status);
 		goto freerdp_connect_finally;
 	}
 
@@ -110,8 +113,6 @@ BOOL freerdp_connect(freerdp* instance)
 				instance->update->dump_rfx = TRUE;
 		}
 
-		extension_post_connect(rdp->extension);
-
 		IFCALLRET(instance->PostConnect, status, instance);
 		update_post_connect(instance->update);
 
@@ -122,6 +123,11 @@ BOOL freerdp_connect(freerdp* instance)
 			if (!connectErrorCode)
 			{
 				connectErrorCode = POSTCONNECTERROR;
+			}
+
+			if (!freerdp_get_last_error(rdp->context))
+			{
+				freerdp_set_last_error(instance->context, FREERDP_ERROR_POST_CONNECT_FAILED);
 			}
 
 			goto freerdp_connect_finally;
@@ -177,11 +183,7 @@ BOOL freerdp_connect(freerdp* instance)
 	if (rdp->errorInfo == ERRINFO_SERVER_INSUFFICIENT_PRIVILEGES)
 	{
 		connectErrorCode = INSUFFICIENTPRIVILEGESERROR;
-	}
-
-	if (!connectErrorCode)
-	{
-		connectErrorCode = UNDEFINEDCONNECTERROR;
+		freerdp_set_last_error(instance->context, FREERDP_ERROR_INSUFFICIENT_PRIVILEGES);
 	}
 
 	SetEvent(rdp->transport->connectedEvent);
@@ -463,6 +465,19 @@ void freerdp_context_free(freerdp* instance)
 UINT32 freerdp_error_info(freerdp* instance)
 {
 	return instance->context->rdp->errorInfo;
+}
+
+UINT32 freerdp_get_last_error(rdpContext* context)
+{
+	return context->LastError;
+}
+
+void freerdp_set_last_error(rdpContext* context, UINT32 lastError)
+{
+	if (lastError)
+		fprintf(stderr, "freerdp_set_last_error 0x%04X\n", lastError);
+
+	context->LastError = lastError;
 }
 
 /** Allocator function for the rdp_freerdp structure.

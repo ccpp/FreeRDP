@@ -153,6 +153,7 @@ int credssp_ntlm_client_init(rdpCredssp* credssp)
 			if (!proceed)
 			{
 				connectErrorCode = CANCELEDBYUSER;
+				freerdp_set_last_error(instance->context, FREERDP_ERROR_CONNECT_CANCELLED);
 				return 0;
 			}
 
@@ -1355,6 +1356,8 @@ LPTSTR credssp_make_spn(const char* ServiceClass, const char* hostname)
 	}
 
 	ServicePrincipalName = (LPTSTR) malloc(SpnLength * sizeof(TCHAR));
+	if (!ServicePrincipalName)
+		return NULL;
 
 	status = DsMakeSpn(ServiceClassX, hostnameX, NULL, 0, NULL, &SpnLength, ServicePrincipalName);
 

@@ -154,9 +154,17 @@ BOOL rts_connect(rdpRpc* rpc)
 		http_response_print(http_response);
 		http_response_free(http_response);
 
-		if (!connectErrorCode && http_response->StatusCode == HTTP_STATUS_DENIED)
+		if (http_response->StatusCode == HTTP_STATUS_DENIED)
 		{
-			connectErrorCode = AUTHENTICATIONERROR;
+			if (!connectErrorCode)
+			{
+				connectErrorCode = AUTHENTICATIONERROR;
+			}
+
+			if (!freerdp_get_last_error(((freerdp*)(rpc->settings->instance))->context))
+			{
+				freerdp_set_last_error(((freerdp*)(rpc->settings->instance))->context, FREERDP_ERROR_AUTHENTICATION_FAILED);
+			}
 		}
 
 		return FALSE;
@@ -253,7 +261,7 @@ BOOL rts_connect(rdpRpc* rpc)
 	return TRUE;
 }
 
-#ifdef WITH_DEBUG_RTS
+#if defined WITH_DEBUG_RTS && 0
 
 static const char* const RTS_CMD_STRINGS[] =
 {
