@@ -24,7 +24,7 @@
 #include "freerdp/settings.h"
 #include "tcp.h"
 
-#include "winpr/libwinpr/utils/trio/trio.h"	/* asprintf */
+#include "../libwinpr/utils/trio/trio.h"	/* asprintf */
 #include "winpr/environment.h"	/* For GetEnvironmentVariableA */
 
 #define CRLF "\r\n"
