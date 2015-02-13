@@ -1494,7 +1494,7 @@ int freerdp_client_settings_parse_command_line_arguments(rdpSettings* settings, 
 				}
 				else
 				{
-					/* TODO parse encironment variable here? */
+					/* environment variable "http_proxy" might be parsed here instead of tcp.c */
 					fprintf(stderr, "Option http-proxy needs argument. Ignored.\n");
 				}
 			}
