@@ -134,7 +134,7 @@ static void winpr_unref_named_pipe(WINPR_NAMED_PIPE* pNamedPipe)
 
 	assert(pNamedPipe->name);
 	assert(g_NamedPipeServerSockets);
-	//WLog_VRB(TAG, "%s: %p (%s)", __FUNCTION__, pNamedPipe, pNamedPipe->name);
+	//WLog_VRB(TAG, "%p (%s)", pNamedPipe, pNamedPipe->name);
 	ArrayList_Lock(g_NamedPipeServerSockets);
 
 	for (index = 0; index < ArrayList_Count(g_NamedPipeServerSockets); index++)
@@ -150,8 +150,8 @@ static void winpr_unref_named_pipe(WINPR_NAMED_PIPE* pNamedPipe)
 
 			if (--baseSocket->references == 0)
 			{
-				//WLog_DBG(TAG, "%s: removing shared server socked resource", __FUNCTION__);
-				//WLog_DBG(TAG, "%s: closing shared serverfd %d", __FUNCTION__, baseSocket->serverfd);
+				//WLog_DBG(TAG, "removing shared server socked resource");
+				//WLog_DBG(TAG, "closing shared serverfd %d", baseSocket->serverfd);
 				ArrayList_Remove(g_NamedPipeServerSockets, baseSocket);
 				close(baseSocket->serverfd);
 				free(baseSocket->name);
@@ -452,13 +452,16 @@ BOOL SetNamedPipeHandleState(HANDLE hNamedPipe, LPDWORD lpMode, LPDWORD lpMaxCol
 			return FALSE;
 
 		flags = fcntl(fd, F_GETFL);
+		if (flags < 0)
+			return FALSE;
 
 		if (pNamedPipe->dwPipeMode & PIPE_NOWAIT)
 			flags = (flags | O_NONBLOCK);
 		else
 			flags = (flags & ~(O_NONBLOCK));
 
-		fcntl(fd, F_SETFL, flags);
+		if (fcntl(fd, F_SETFL, flags) < 0)
+			return FALSE;
 	}
 
 	if (lpMaxCollectionCount)

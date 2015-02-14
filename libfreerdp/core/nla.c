@@ -148,7 +148,7 @@ int credssp_ntlm_client_init(rdpCredssp* credssp)
 		if (instance->Authenticate)
 		{
 			BOOL proceed = instance->Authenticate(instance,
-												  &settings->Username, &settings->Password, &settings->Domain);
+						&settings->Username, &settings->Password, &settings->Domain);
 
 			if (!proceed)
 			{
@@ -174,7 +174,7 @@ int credssp_ntlm_client_init(rdpCredssp* credssp)
 						free(identity->Password);
 
 					identity->PasswordLength = ConvertToUnicode(CP_UTF8, 0,
-											   settings->PasswordHash, -1, &identity->Password, 0) - 1;
+							settings->PasswordHash, -1, &identity->Password, 0) - 1;
 					/**
 					 * Multiply password hash length by 64 to obtain a length exceeding
 					 * the maximum (256) and use it this for hash identification in WinPR.
@@ -190,15 +190,9 @@ int credssp_ntlm_client_init(rdpCredssp* credssp)
 			 (char*) credssp->identity.User, (char*) credssp->identity.Domain, (char*) credssp->identity.Password);
 #endif
 
-	if (credssp->transport->layer == TRANSPORT_LAYER_TLS)
-	{
-		tls = credssp->transport->TlsIn;
-	}
-	else if (credssp->transport->layer == TRANSPORT_LAYER_TSG_TLS)
-	{
-		tls = credssp->transport->TsgTls;
-	}
-	else
+	tls = credssp->transport->tls;
+
+	if (!tls)
 	{
 		WLog_ERR(TAG, "Unknown NLA transport layer");
 		return 0;
@@ -211,8 +205,7 @@ int credssp_ntlm_client_init(rdpCredssp* credssp)
 	sprintf(spn, "%s%s", TERMSRV_SPN_PREFIX, settings->ServerHostname);
 #ifdef UNICODE
 	credssp->ServicePrincipalName = (LPTSTR) malloc(length * 2 + 2);
-	MultiByteToWideChar(CP_UTF8, 0, spn, length,
-						(LPWSTR) credssp->ServicePrincipalName, length);
+	MultiByteToWideChar(CP_UTF8, 0, spn, length, (LPWSTR) credssp->ServicePrincipalName, length);
 	free(spn);
 #else
 	credssp->ServicePrincipalName = spn;
@@ -251,7 +244,6 @@ int credssp_client_authenticate(rdpCredssp* credssp)
 	BOOL have_context;
 	BOOL have_input_buffer;
 	BOOL have_pub_key_auth;
-	sspi_GlobalInit();
 
 	if (credssp_ntlm_client_init(credssp) == 0)
 		return 0;
@@ -423,7 +415,6 @@ int credssp_server_authenticate(rdpCredssp* credssp)
 	BOOL have_context;
 	BOOL have_input_buffer;
 	BOOL have_pub_key_auth;
-	sspi_GlobalInit();
 
 	if (credssp_ntlm_server_init(credssp) == 0)
 		return 0;
@@ -846,7 +837,9 @@ void credssp_read_ts_credentials(rdpCredssp* credssp, PSecBuffer ts_credentials)
 	wStream* s;
 	int length;
 	int ts_password_creds_length;
+
 	s = Stream_New(ts_credentials->pvBuffer, ts_credentials->cbBuffer);
+
 	/* TSCredentials (SEQUENCE) */
 	ber_read_sequence_tag(s, &length);
 	/* [0] credType (INTEGER) */
@@ -855,7 +848,9 @@ void credssp_read_ts_credentials(rdpCredssp* credssp, PSecBuffer ts_credentials)
 	/* [1] credentials (OCTET STRING) */
 	ber_read_contextual_tag(s, 1, &length, TRUE);
 	ber_read_octet_string_tag(s, &ts_password_creds_length);
+
 	credssp_read_ts_password_creds(credssp, s);
+
 	Stream_Free(s, FALSE);
 }
 
@@ -889,6 +884,7 @@ void credssp_encode_ts_credentials(rdpCredssp* credssp)
 	int DomainLength;
 	int UserLength;
 	int PasswordLength;
+
 	DomainLength = credssp->identity.DomainLength;
 	UserLength = credssp->identity.UserLength;
 	PasswordLength = credssp->identity.PasswordLength;
@@ -920,7 +916,9 @@ SECURITY_STATUS credssp_encrypt_ts_credentials(rdpCredssp* credssp)
 	SecBuffer Buffers[2];
 	SecBufferDesc Message;
 	SECURITY_STATUS status;
+
 	credssp_encode_ts_credentials(credssp);
+
 	Buffers[0].BufferType = SECBUFFER_TOKEN; /* Signature */
 	Buffers[1].BufferType = SECBUFFER_DATA; /* TSCredentials */
 	sspi_SecBufferAlloc(&credssp->authInfo, credssp->ContextSizes.cbMaxSignature + credssp->ts_credentials.cbBuffer);
@@ -930,9 +928,11 @@ SECURITY_STATUS credssp_encrypt_ts_credentials(rdpCredssp* credssp)
 	Buffers[1].cbBuffer = credssp->ts_credentials.cbBuffer;
 	Buffers[1].pvBuffer = &((BYTE*) credssp->authInfo.pvBuffer)[Buffers[0].cbBuffer];
 	CopyMemory(Buffers[1].pvBuffer, credssp->ts_credentials.pvBuffer, Buffers[1].cbBuffer);
+
 	Message.cBuffers = 2;
 	Message.ulVersion = SECBUFFER_VERSION;
 	Message.pBuffers = (PSecBuffer) &Buffers;
+
 	status = credssp->table->EncryptMessage(&credssp->context, 0, &Message, credssp->send_seq_num++);
 
 	if (status != SEC_E_OK)
@@ -1084,7 +1084,9 @@ int credssp_recv(rdpCredssp* credssp)
 	int length;
 	int status;
 	UINT32 version;
+
 	s = Stream_New(NULL, 4096);
+
 	status = transport_read_pdu(credssp->transport, s);
 
 	if (status < 0)

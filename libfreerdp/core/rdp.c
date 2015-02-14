@@ -654,6 +654,9 @@ BOOL rdp_recv_server_auto_reconnect_status_pdu(rdpRdp* rdp, wStream* s)
 		return FALSE;
 
 	Stream_Read_UINT32(s, arcStatus); /* arcStatus (4 bytes) */
+
+	WLog_WARN(TAG, "AutoReconnectStatus: 0x%04X", arcStatus);
+
 	return TRUE;
 }
 
@@ -1268,8 +1271,22 @@ void rdp_set_blocking_mode(rdpRdp* rdp, BOOL blocking)
 int rdp_check_fds(rdpRdp* rdp)
 {
 	int status;
+	rdpTransport* transport = rdp->transport;
 
-	status = transport_check_fds(rdp->transport);
+	if (transport->tsg)
+	{
+		rdpTsg* tsg = transport->tsg;
+
+		status = tsg_check(tsg);
+
+		if (status < 0)
+			return -1;
+
+		if (tsg->state != TSG_STATE_PIPE_CREATED)
+			return status;
+	}
+
+	status = transport_check_fds(transport);
 
 	if (status == 1)
 	{
@@ -1321,8 +1338,6 @@ rdpRdp* rdp_new(rdpContext* context)
 
 	if (!rdp->transport)
 		goto out_free_settings;
-	
-	rdp->transport->rdp = rdp;
 
 	rdp->license = license_new(rdp);
 	if (!rdp->license)
@@ -1410,31 +1425,61 @@ void rdp_reset(rdpRdp* rdp)
 
 	bulk_reset(rdp->bulk);
 
-	crypto_rc4_free(rdp->rc4_decrypt_key);
-	rdp->rc4_decrypt_key = NULL;
-	crypto_rc4_free(rdp->rc4_encrypt_key);
-	rdp->rc4_encrypt_key = NULL;
-	crypto_des3_free(rdp->fips_encrypt);
-	rdp->fips_encrypt = NULL;
-	crypto_des3_free(rdp->fips_decrypt);
-	rdp->fips_decrypt = NULL;
-	crypto_hmac_free(rdp->fips_hmac);
-	rdp->fips_hmac = NULL;
+	if (rdp->rc4_decrypt_key)
+	{
+		crypto_rc4_free(rdp->rc4_decrypt_key);
+		rdp->rc4_decrypt_key = NULL;
+	}
+
+	if (rdp->rc4_encrypt_key)
+	{
+		crypto_rc4_free(rdp->rc4_encrypt_key);
+		rdp->rc4_encrypt_key = NULL;
+	}
+
+	if (rdp->fips_encrypt)
+	{
+		crypto_des3_free(rdp->fips_encrypt);
+		rdp->fips_encrypt = NULL;
+	}
+
+	if (rdp->fips_decrypt)
+	{
+		crypto_des3_free(rdp->fips_decrypt);
+		rdp->fips_decrypt = NULL;
+	}
+
+	if (rdp->fips_hmac)
+	{
+		crypto_hmac_free(rdp->fips_hmac);
+		rdp->fips_hmac = NULL;
+	}
+
+	if (settings->ServerRandom)
+	{
+		free(settings->ServerRandom);
+		settings->ServerRandom = NULL;
+		settings->ServerRandomLength = 0;
+	}
+
+	if (settings->ServerCertificate)
+	{
+		free(settings->ServerCertificate);
+		settings->ServerCertificate = NULL;
+	}
+
+	if (settings->ClientAddress)
+	{
+		free(settings->ClientAddress);
+		settings->ClientAddress = NULL;
+	}
 
 	mcs_free(rdp->mcs);
 	nego_free(rdp->nego);
 	license_free(rdp->license);
 	transport_free(rdp->transport);
 
-	free(settings->ServerRandom);
-	settings->ServerRandom = NULL;
-	free(settings->ServerCertificate);
-	settings->ServerCertificate = NULL;
-	free(settings->ClientAddress);
-	settings->ClientAddress = NULL;
-
 	rdp->transport = transport_new(context);
-	rdp->transport->rdp = rdp;
 	rdp->license = license_new(rdp);
 	rdp->nego = nego_new(rdp->transport);
 	rdp->mcs = mcs_new(rdp->transport);

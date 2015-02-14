@@ -22,8 +22,17 @@
 #endif
 
 #include <winpr/crt.h>
+#include <winpr/synch.h>
 
 #include <winpr/winsock.h>
+
+#ifdef HAVE_UNISTD_H
+#include <unistd.h>
+#endif
+
+#ifndef _WIN32
+#include <fcntl.h>
+#endif
 
 /**
  * ws2_32.dll:
@@ -596,6 +605,51 @@ int WSAGetLastError(void)
 	return iError;
 }
 
+HANDLE WSACreateEvent(void)
+{
+	return CreateEvent(NULL, TRUE, FALSE, NULL);
+}
+
+BOOL WSASetEvent(HANDLE hEvent)
+{
+	return SetEvent(hEvent);
+}
+
+BOOL WSAResetEvent(HANDLE hEvent)
+{
+	return ResetEvent(hEvent);
+}
+
+BOOL WSACloseEvent(HANDLE hEvent)
+{
+	BOOL status;
+
+	status = CloseHandle(hEvent);
+
+	if (!status)
+		SetLastError(6);
+
+	return status;
+}
+
+int WSAEventSelect(SOCKET s, WSAEVENT hEventObject, LONG lNetworkEvents)
+{
+	u_long arg = 1;
+
+	if (_ioctlsocket(s, FIONBIO, &arg) != 0)
+		return SOCKET_ERROR;
+
+	if (SetEventFileDescriptor(hEventObject, s) < 0)
+		return SOCKET_ERROR;
+
+	return 0;
+}
+
+DWORD WSAWaitForMultipleEvents(DWORD cEvents, const HANDLE* lphEvents, BOOL fWaitAll, DWORD dwTimeout, BOOL fAlertable)
+{
+	return WaitForMultipleObjectsEx(cEvents, lphEvents, fWaitAll, dwTimeout, fAlertable);
+}
+
 SOCKET _accept(SOCKET s, struct sockaddr* addr, int* addrlen)
 {
 	int status;
@@ -646,6 +700,26 @@ int _connect(SOCKET s, const struct sockaddr* name, int namelen)
 
 int _ioctlsocket(SOCKET s, long cmd, u_long* argp)
 {
+	int fd = (int) s;
+
+	if (cmd == FIONBIO)
+	{
+		int flags;
+
+		if (!argp)
+			return SOCKET_ERROR;
+
+		flags = fcntl(fd, F_GETFL);
+
+		if (flags == -1)
+			return SOCKET_ERROR;
+
+		if (*argp)
+			fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+		else
+			fcntl(fd, F_SETFL, flags & ~(O_NONBLOCK));
+	}
+
 	return 0;
 }
 

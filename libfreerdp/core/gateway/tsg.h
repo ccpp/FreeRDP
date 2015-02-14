@@ -55,17 +55,12 @@ typedef enum _TSG_STATE TSG_STATE;
 
 struct rdp_tsg
 {
+	BIO* bio;
 	rdpRpc* rpc;
 	UINT16 Port;
-	RPC_PDU* pdu;
 	LPWSTR Hostname;
 	LPWSTR MachineName;
 	TSG_STATE state;
-	BOOL PendingPdu;
-	UINT32 BytesRead;
-	UINT32 BytesAvailable;
-	UINT32 StubOffset;
-	UINT32 StubLength;
 	rdpSettings* settings;
 	rdpTransport* transport;
 	CONTEXT_HANDLE TunnelContext;
@@ -304,17 +299,25 @@ typedef struct _TSG_PACKET
 	TSG_PACKET_TYPE_UNION tsgPacket;
 } TSG_PACKET, *PTSG_PACKET;
 
+BOOL TsProxyCreateTunnel(rdpTsg* tsg, PTSG_PACKET tsgPacket, PTSG_PACKET* tsgPacketResponse,
+			PTUNNEL_CONTEXT_HANDLE_SERIALIZE* tunnelContext, UINT32* tunnelId);
+
 DWORD TsProxySendToServer(handle_t IDL_handle, BYTE pRpcMessage[], UINT32 count, UINT32* lengths);
 
-BOOL tsg_connect(rdpTsg* tsg, const char* hostname, UINT16 port);
+int tsg_transition_to_state(rdpTsg* tsg, TSG_STATE state);
+
+BOOL tsg_connect(rdpTsg* tsg, const char* hostname, UINT16 port, int timeout);
 BOOL tsg_disconnect(rdpTsg* tsg);
 
 int tsg_write(rdpTsg* tsg, BYTE* data, UINT32 length);
 int tsg_read(rdpTsg* tsg, BYTE* data, UINT32 length);
 
-BOOL tsg_set_blocking_mode(rdpTsg* tsg, BOOL blocking);
+int tsg_recv_pdu(rdpTsg* tsg, RPC_PDU* pdu);
+int tsg_check(rdpTsg* tsg);
 
 rdpTsg* tsg_new(rdpTransport* transport);
 void tsg_free(rdpTsg* tsg);
+
+BIO_METHOD* BIO_s_tsg(void);
 
 #endif /* FREERDP_CORE_TSG_H */

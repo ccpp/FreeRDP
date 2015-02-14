@@ -38,8 +38,19 @@
 #define MSG_NOSIGNAL 0
 #endif
 
-#define BIO_TYPE_SIMPLE		66
-#define BIO_TYPE_BUFFERED	67
+#define BIO_TYPE_TSG			65
+#define BIO_TYPE_SIMPLE			66
+#define BIO_TYPE_BUFFERED		67
+
+#define BIO_C_SET_SOCKET		1101
+#define BIO_C_GET_SOCKET		1102
+#define BIO_C_GET_EVENT			1103
+#define BIO_C_SET_NONBLOCK		1104
+
+#define BIO_set_socket(b, s, c)		BIO_ctrl(b, BIO_C_SET_SOCKET, c, s);
+#define BIO_get_socket(b, c)		BIO_ctrl(b, BIO_C_GET_SOCKET, 0, (char*) c)
+#define BIO_get_event(b, c)		BIO_ctrl(b, BIO_C_GET_EVENT, 0, (char*) c)
+#define BIO_set_nonblock(b, c)		BIO_ctrl(b, BIO_C_SET_NONBLOCK, c, NULL)
 
 typedef struct rdp_tcp rdpTcp;
 
@@ -59,7 +70,6 @@ struct rdp_tcp
 };
 
 BOOL freerdp_tcp_connect(rdpTcp* tcp, const char* hostname, int port, int timeout);
-BOOL freerdp_tcp_disconnect(rdpTcp* tcp);
 int freerdp_tcp_read(rdpTcp* tcp, BYTE* data, int length);
 int freerdp_tcp_write(rdpTcp* tcp, BYTE* data, int length);
 int freerdp_tcp_wait_read(rdpTcp* tcp, DWORD dwMilliSeconds);

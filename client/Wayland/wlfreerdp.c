@@ -52,7 +52,6 @@ void wl_end_paint(rdpContext* context)
 	wlfDisplay* display;
 	wlfWindow* window;
 	wlfContext* context_w;
-	void* data;
 	INT32 x, y;
 	UINT32 w, h;
 	int i;
@@ -244,6 +243,9 @@ int wlfreerdp_run(freerdp* instance)
 	wlf_DestroyWindow(context, context->window);
 	wlf_DestroyInput(context, context->input);
 	wlf_DestroyDisplay(context, context->display);
+
+	freerdp_channels_disconnect(instance->context->channels, instance);
+	freerdp_disconnect(instance);
 
 	freerdp_channels_close(instance->context->channels, instance);
 	freerdp_channels_free(instance->context->channels);
