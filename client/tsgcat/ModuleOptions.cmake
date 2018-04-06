@@ -1,0 +1,8 @@
+option(WITH_TSGCAT_CLIENT "Build tsgcat client" OFF)
+if(WITH_TSGCAT_CLIENT)
+	set(FREERDP_CLIENT_ENABLED 1)
+endif()
+
+set(FREERDP_CLIENT_NAME "tsgcat")
+set(FREERDP_CLIENT_PLATFORM "Console")
+set(FREERDP_CLIENT_VENDOR "ccpp")
